@@ -1,0 +1,72 @@
+---
+title: Survival Data
+author: ''
+date: []
+slug: []
+categories: []
+tags: []
+lastmod: '2021-08-06T13:19:08-04:00'
+publishdate: '2021-08-06T13:19:08-04:00'
+description: ''
+weight: 1
+---
+
+
+For some researchers, they may be interested in how much time it takes to reach a certain event. Oncologists may want to look at the time from cancer diagnosis to receiving treatment, educational researchers might analyze time of high school dropouts, but time to death is the most common outcome of interest. For this reason, time to event analyses are often referred to as 'survival analysis'.  
+
+
+
+### Key Features
+
+
+Survival outcomes are different from other statistical outcome variables because there are some key features in survival outcomes. First, times to an event are always positive since outcomes are always measured from a starting point with no outcome going forwards in time. Other analyses like t-tests and linear regression assume normality, but survival outcomes are often skewed. In a time to death example, we might find that a majority of our sample dies in the early stages of the study and very few die at later dates, which would leave a long tail on the distribution. Longitudinal analyses often have all subjects measured at the same time periods, but survival analysis defines a starting and end point, enrolling people along the duration of the study. This means that some people can be enrolled at the beginning and stay until the end, and others can join halfway through and be followed for less time. 
+
+#### Censoring
+
+One of the key characteristics of survival data is how to deal with incomplete follow-up information. There are a few scenarios which can lead to incomplete data: they may drop out of a study before they experience an event, the study duration ends before we observe the patient have an event, or they experience a different event that makes any other follow up impossible. In all of these cases, we have no idea what the individual's true time to the event is, but it is implied that the event would occur eventually after we lose their follow up data. These cases are known as **censoring**. 
+
+
+Let's look at an example data set for this chapter. We will be using the German Breast Cancer Study Group 2 data set that can be found in the 'pec' package for R. 
+
+```{r simulatedData}
+library(pec)
+library(data.table)
+library(survival)
+data(GBSG2,package="pec")
+setDT(GBSG2)
+GBSG2$id = factor(c(1:686))
+head(GBSG2)
+
+
+
+```
+The data set contains observations from 686 women collecting covariates such as age, hormonal therapy reception, monpausal status, tumor size and grade, etc. It also has some columns that are key to survival data: time and censorship columns. When collecting survival data, having these 2 variables are important. Survival time is coded as a numeric value indicating the number of days since enrollment that a patient survived, and censorship is a dummy variable with 1 indicating censorship. 
+
+We can visualize the survival times and outcomes for the sample with a simple plot using survival time and censorship. The x-axis represents the length of time from initial enrollment to an outcome event or to censorship. Each y-axis tick represents one subject and their lines represent the length of their enrollment. 
+
+
+```{r plot, fig.cap='Subject follow-up for study duration', tidy=FALSE}
+library(ggplot2)
+
+ggplot(GBSG2[c(588:598),], 
+       aes(x=id, 
+           y=time)) +
+  geom_point(aes(color=factor(cens),
+                 shape=factor(cens)),
+             size=3) +
+  geom_segment(aes(xend=id), 
+               yend=0) +
+  expand_limits(y=0) +
+  coord_flip() +
+  xlab("Subject ID") +
+  ylab("Time \n(in days)") +
+  theme_minimal() +
+  theme(legend.title = element_blank()) +
+  scale_shape_discrete(name = "", 
+                      labels = c("Event", "Censored"))
+
+```
+
+
+
+

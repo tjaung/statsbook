@@ -1,0 +1,47 @@
+---
+title: Competing Risks
+author: ''
+date: []
+slug: []
+categories: []
+tags: []
+lastmod: '2021-08-06T13:20:29-04:00'
+publishdate: '2021-08-06T13:20:29-04:00'
+description: ''
+weight: 25
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE)
+```
+
+Recall from the first section of the chapter that one case of censoring involves an event that completely blocks the possibility for the relevant outcome to occurs. This is essentially the main idea of competing risks models.
+
+Competing risks analysis is a special extension of survival analysis that allows for multiple competing outcomes. Outcomes are said to be competing when the presence of one completely blocks the chance of any other event occurring. Competing risks analyses can provide a more realistic view of the world as there can be many reasons as to why a patient did not experience the outcome. For example, mortality in elderly patients may be the outcome of interest, but patients can die from illness, heart attack, or even unforeseen accidents. Once one type of death event occurs, it is impossible for any other type to arise. In this sense, these death events are said to be competing. 
+
+Some key assumptions of standard survival analysis are violated with competing risk models. First, the assumption that relevant outcomes can occur after censoring is violated since only one competing outcome can occur. Second, we assume that for each time point, the instantaneous probability of an event occurring among those who survived up to that time point is independent of being censored. In other words, the probability of dying at a given time is not dependent on censoring. This assumption is violated since
+
+
+You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+fit <- lm(dist ~ speed, data = cars)
+fit
+```
+
+# Including Plots
+
+You can also embed plots. See Figure \@ref(fig:pie) for example:
+
+```{r pie, fig.cap='A fancy pie chart.', tidy=FALSE}
+par(mar = c(0, 1, 0, 1))
+pie(
+  c(280, 60, 20),
+  c('Sky', 'Sunny side of pyramid', 'Shady side of pyramid'),
+  col = c('#0292D8', '#F7EA39', '#C4B632'),
+  init.angle = -50, border = NA
+)
+```
+
