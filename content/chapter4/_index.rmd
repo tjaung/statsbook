@@ -1,0 +1,208 @@
+---
+title: Time to Event Analysis
+author: ''
+date: []
+slug: []
+categories: []
+tags: []
+lastmod: '2021-08-06T13:19:08-04:00'
+publishdate: '2021-08-06T13:19:08-04:00'
+description: ''
+weight: 1
+---
+
+
+Time-to-event analysis is exactly what it sounds like; researchers may be interested in seeing how much time it takes for subjects to reach a particular event of interest. Time to event analyses are commonly seen in medical research, and time to death is the most common outcome of interest. It is for this reason, time to event analyses are commonly referred to as 'survival analysis'.The terms 'time-to'event' and 'survival analysis' will be used interchangeably, but when I use terms like 'survival outcomes' I am not referencing time to death outcomes, but any outcome in a time-to-event analysis. Your outcome can be anything of interest. For example, Oncologists may want to look at the time from cancer diagnosis to receiving a certain treatment, or educational researchers might analyze time from high school enrollment to dropout. Before jumping into your own study, if you want to estimate true survival times, you should understand some key ideas that will help you plan your study methods, when and why you should use survival analysis, and what sets survival analysis apart from other statistical analyses. 
+
+
+
+### Is It Right For You?  
+
+Like any study, you need to ask the right questions. How long does it take for participants to stop using a product? What is the probability a patient lives for 5 years with x disease? Do patients in group A live longer than patients in group B? Does this characteristic(s) influence the chances of survival? If your questions sound similar to these, survival analysis may be a good choice. Once you know that survival analysis will answer your questions, think about what kind of study type you will need to plan. Depending on your question, you may need to plan for randomization or multiple groups. Will you collect data on a new cohort, or will you use existing data? 
+
+
+### Methods  
+
+If this is the right analysis for you, then you need to think about the variables you need to measure. Of course, your outcome should be the first. Survival outcomes will always have two features: the interval unit of time measurement, and a binary variable indicating event occurrence. Furthermore, you will want to collect data on other covariates. If you want to see how some characteristics influence time to event, think about what covariates may be relevant to your outcome. Will age or gender influence the outcome? Will you measure covariates with continuous scales, or categorical ones? Thinking about these before you collect data will help you a lot, but it may also help to consult a statistician for planning these.  
+
+
+
+Once you know what data to collect, you should know what parameters you need to set up a priori. The first thing is you need to define your starting and ending points of your study. You will be measuring time until an event occurs for a sample, but depending on your outcome, this can take days, weeks, or even years. Your defined time parameters must be long enough to truly capture the true survival times, but also short enough that it is feasible to conduct your research. If I wanted to look at time to lung cancer in young adults who smoke, I wouldn't plan a one year study, since that would not capture the true survival time. I would need to prepare myself for years of collecting data, or alternatively, I can use a existing data for a retrospective cohort study. Even then, I would need to make sure the data goes back far enough to truly capture the correct survival times. You should be well aware of your outcome and plan realistic timelines for how long it will take for your cohort to begin seeing event occurrences.   
+
+If you are trying to make estimates for a broader population, you will need to know how large of a sample size you need to collect in order to have sufficient power. Depending on the type of survival analysis you will do, the calculations will be different, so make sure to ask a statistician for the correct sample size. Before asking, there are some universal statistics that will help them calculate it. How much power do you want? If you are doing a hypothesis test, what significance level do you want to test? If there is previous research, is there a known median survival time? Known baseline event rate? Censoring rate? Hazard ratios? These may not mean much now, but they will be expanded on in different sections.
+
+### Data Collection  
+Finally, you will come to the data collection stage. Survival analysis is technically a longitudinal analysis, but unlike some longitudinal analyses, you do not need to collect data all at the same time points. Some longitudinal studies require that all subjects have a baseline measurement and subsequent follow-ups at the same time, or in equal spacing, but in survival analysis, you can enroll subjects at any time and start collecting data, as long as it is within the pre-specified study duration. This will mean that your subjects will not have equal follow-up times, but that is OK as long as you keep following up on the patients until an outcome occurs, or until they reach the end of the study period. In the example below, you can see that not all patients are enrolled at the same time.  
+
+
+```{r timeline, echo=FALSE}
+library(survival)
+library(ggplot2)
+
+dat <- structure(list(ID = 1:10, 
+                      eventA = c(0L, 1L, 1L, 0L, 1L, 1L, 0L, 1L, 1L, 1L), 
+                      eventB = c(1L, 0L, 0L, 1L, 0L, 0L, 1L, 0L,0L, 0L), 
+                      t1 = c(0, 0, 2, 0, 3, 2, 1, 5, 1, 10), 
+                      t2 = c(7, 5, 10, 15, 8, 15, 2, 10, 7, 15), 
+                      censored = c("Event", "Event", "Event", "Event", "Censored", "Censored", "Event", "Censored", "Event",
+                                   "Censored")), 
+                 .Names = c("ID", "eventA", "eventB", "t1", "t2", "censored"), 
+                 class = "data.frame", 
+                 row.names = c(NA, -10L))
+
+# Create event variable
+dat$event <- with(dat, ifelse(eventA, "A", "B"))
+
+# Create id.ordered, which is a factor that is ordered by t2
+# This will allow the plot to be ordered by increasing t2, if desired
+dat$id.ordered <- ordered(x = dat$ID, levels = order(dat$ID, decreasing = F))
+dat$censored = as.factor(dat$censored)
+
+ggplot(dat, aes(x = id.ordered)) + 
+    # Plot solid line representing non-interval censored time from 0 to t1
+    geom_linerange(aes(ymin = t1, ymax = t2)) +  
+    # Plot points representing event
+    # The ifelse() function moves censored marker to middle of interval
+    geom_point(aes(y = t2, shape = censored), 
+        size = 4) +
+    # Flip coordinates
+    coord_flip() + 
+    # Add custom name to linetype scale, 
+    # otherwise it will default to "as.factor(censored))"
+    scale_linetype_manual(name = "Censoring", values = c(1, 2), 
+        labels = c("Not censored", "Interval censored")) +
+    # Add custom shape scale.  Change the values to get different shapes.
+    scale_shape_manual(name = "", values = c(19, 15)) +
+    # Add main title and axis labels
+    ggtitle("") + 
+    xlab("Patient ID") +  
+    ylab("Time (In Days)") + 
+    # I think the bw theme looks better for this graph, 
+    # but leave it out if you prefer the default theme
+    theme_bw()
+
+```
+  
+This graph can be pushed to the left to show the total follow-up time for each patient:  
+
+
+```{r timelinePushed, echo=FALSE}
+ggplot(dat, aes(x = id.ordered)) + 
+    # Plot solid line representing non-interval censored time from 0 to t1
+    geom_linerange(aes(ymin = 0, ymax = t2-t1)) +  
+    # Plot points representing event
+    # The ifelse() function moves censored marker to middle of interval
+    geom_point(aes(y = t2-t1, shape = censored), 
+        size = 4) +
+    # Flip coordinates
+    coord_flip() + 
+    # Add custom name to linetype scale, 
+    # otherwise it will default to "as.factor(censored))"
+    scale_linetype_manual(name = "Censoring", values = c(1, 2), 
+        labels = c("Not censored", "Interval censored")) +
+    # Add custom shape scale.  Change the values to get different shapes.
+    scale_shape_manual(name = "", values = c(19, 15)) +
+    # Add main title and axis labels
+    ggtitle("") + 
+    xlab("Patient ID") +  
+    ylab("Time (In Days)") + 
+    # I think the bw theme looks better for this graph, 
+    # but leave it out if you prefer the default theme
+    theme_bw()
+
+```
+
+
+#### Censoring
+
+We assume that an event will occur for all participants in our sample eventually, so we try to create reasonable study duration times to capture the event, but it is possible that some patients will not see an event before the study duration ends. Other sources of incomplete data can be a participant withdrawing before the study ends, or maybe something happens to a participant that makes data collection impossible. In these cases, we will have no idea what that participant's true survival time is. Marking these patients as such is called **censoring**, and it is an important case of missing data in survival analysis. In the example plot above, the censored patients are marked because we didn't see the event occur, and we don't know when it would have occurred had we been able to keep checking up on them. This is called **right censoring**. It's easy to tell because the censor mark is on the right side of the plot. Alternatively, **left censoring** occurs when we record an event occuring for an individual, but we do not know when it actually occurred. An example might be if we record a patient testing positive for COVID-19, but we do not know the exact time they contracted the virus, only that it happened sometime between their first record and testing. In this case, the actual survival time is less than the observed survival time:  
+
+
+```{r leftCensor, echo=FALSE}
+leftCensor = dat[1,]
+leftCensor$id.ordered = ""
+leftCensor$when = 3.5
+leftCensor$text = "Actual contraction time unknown,\nbut sometime between baseline and event"
+leftCensor$censored = "Positive\nTest"
+ggplot(leftCensor, aes(x = id.ordered)) + 
+    # Plot solid line representing non-interval censored time from 0 to t1
+    geom_linerange(aes(ymin = 0, ymax = t2-t1)) +  
+    # Plot points representing event
+    # The ifelse() function moves censored marker to middle of interval
+    geom_point(aes(y = t2-t1, shape = censored), 
+        size = 4, show.legend = FALSE) +
+    annotate("segment", x = .75, xend = 1, y = 2, yend = 3.5,
+           colour = "black", size = 1, arrow = arrow()) +
+    geom_text(aes(y=2, x = 0.7, label=text),
+              size = 3) +
+      geom_text(aes(y=t2, x = 1.1, label=censored),
+              size = 3) +
+    # Flip coordinates
+    coord_flip() + 
+    # Add custom name to linetype scale, 
+    # otherwise it will default to "as.factor(censored))"
+    scale_linetype_manual(name = "Censoring", values = c(1, 2), 
+        labels = c("Not censored", "Interval censored")) +
+  scale_y_discrete("", c(0:7), c(0:7)) +
+    # Add custom shape scale.  Change the values to get different shapes.
+    scale_shape_manual(name = "", values = c(19, 15)) +
+    # Add main title and axis labels
+    ggtitle("") + 
+    xlab("") +  
+    ylab("Time (In Days)") + 
+    # I think the bw theme looks better for this graph, 
+    # but leave it out if you prefer the default theme
+    theme_bw()
+
+```
+The last type is **interval censoring**, which occurs when there are multiple time points of some test. Using the COVID-19 example, if the patient had two tests, the first being negative, and the second being positive, we know that virus exposure happened some time during test 1 and test 2, but again, we do not know the exact time.  
+
+```{r intervalCensor, echo=FALSE}
+intervalCensor = dat[1,]
+intervalCensor$id.ordered = ""
+intervalCensor$text = ""
+intervalCensor$censored = "Test 1\nNegative"
+intervalCensor$positive = "Test 2\nPositive"
+intervalCensor$t3 = 12
+intervalCensor$text = "Actual contraction time unknown,\nbut sometime between test 1 and test 2"
+
+
+ggplot(intervalCensor, aes(x = id.ordered)) + 
+    # Plot solid line representing non-interval censored time from 0 to t1
+    geom_linerange(aes(ymin = 0, ymax = t3)) +  
+    # Plot points representing event
+    # The ifelse() function moves censored marker to middle of interval
+    geom_point(aes(y = t2, shape = censored), 
+        size = 4, show.legend = FALSE) +
+      geom_point(aes(y = t3, shape = positive), 
+        size = 4, show.legend = FALSE) +
+    annotate("segment", x = 0.93, xend = 0.93, y = 7, yend = 12,
+           arrow = arrow(ends = "both", angle = 90, length = unit(.2,"cm"))) +
+  annotate("segment", x = 0.75, xend = 0.9, y = 9.5, yend = 9.5,
+           colour = "black", size = 1, arrow = arrow()) +
+    geom_text(aes(y=9.5, x = 0.7, label=text),
+              size = 3) +
+  geom_text(aes(y=t2, x = 1.1, label=censored),
+              size = 3) +
+  geom_text(aes(y=t3, x = 1.1, label=positive),
+              size = 3) +
+   scale_y_discrete("", c(0:12), c(0:12)) +
+    # Flip coordinates
+    coord_flip() + 
+    # Add custom name to linetype scale, 
+    # otherwise it will default to "as.factor(censored))"
+   
+    # Add custom shape scale.  Change the values to get different shapes.
+    scale_shape_manual(name = "", values = c(19, 15)) +
+    # Add main title and axis labels
+    ggtitle("") + 
+    xlab("") +  
+    ylab("Time (In Days)") + 
+    # I think the bw theme looks better for this graph, 
+    # but leave it out if you prefer the default theme
+    theme_bw()
+
+```
+
+
+Another feature is that survival analyses are non-parametric, meaning that it does not rely on knowing the shape or form of the underlying distribution. Analyses like t-tests and linear regression assume that the underlying population outcomes are normally distributed, but you don't need to make such assumptions as survival outcomes are often skewed. In a time to death example, we might find that a majority of our sample dies in the early stages of the study and very few die at later dates, which would leave a long tail on the distribution. 
