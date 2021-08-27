@@ -9,39 +9,359 @@ lastmod: '2021-08-06T13:20:29-04:00'
 publishdate: '2021-08-06T13:20:29-04:00'
 description: ''
 weight: 25
+output:
+  html_document:
+    code_folding: hide
+   
 ---
 
+### Introduction  
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(collapse = TRUE)
+Recall that in censoring, that for some individuals, we will not see the outcome arise. A standard Cox Regression makes two assumptions: the first being that the event of interest may occur after the study period ends, and the second is of independent censoring, where for each time point, t, the probability of an event occurring is independent from those being censored. When these assumptions are violated, we need to make some special considerations.  
+
+Let's look at a case where the first assumption is violated. In a COVID-19 example with progression to intubation as an outcome, not all patients will be intubated, and some may die before they progress to that stage. Once a patient dies, they can not ever be intubated, and so the outcome can never happen. Death does not censor the outcome, but rather competes with it. The first assumption of the event occurring after censoring is violated. In another example with death as the outcome, we're looking at time to death, but some patients may be discharged before they die. We know that eventually they will die, but that time to death will be much later than the study period. This fits the first assumption, but consider this case: on a given day, there are two individuals, one discharged and one still in the hospital. The chances that the discharged patient will die is most likely much less than the patient still in the hospital. While the discharged patient may be marked as censored, the probability of an event occurring for the censored patient is not independent of the censoring event.  
+
+
+
+So how can you separate each outcome? One possible way you can estimate the rates of each independent event is to separately form Kaplan-Meiers for each individual risk. However, these still assume independent censoring, and fitting different Kaplan-Meiers won't get around this.  
+
+A competing risks model is the best method to work around the assumption violations since it considers all possible competing events simultaneously. Once the investigator defines the possible risks, they can follow-up subjects like normal, keeping in mind that only one of the events in the defined risk setting can occur. Once one event happens, no other one can occur. The goal of the analysis is to determine the risk factors for each specific outcome. This is more complicated, but provides a more realistic view of what can happen in the world.  
+
+
+### Analysis Example  
+
+Let's look at an example data set now. This is the Melanoma data set from the 'boot' package. It had data on 205 patients with malignant Melanoma. Every patient had their tumor completely removed. Characteristics of the tumors were measured (thickness, ulcerated or not) along with some demographic covariates. The primary outcome was time to death, measured in days since the operation. Take some time to look over the data now:  
+
+```{r data, echo=FALSE, message=FALSE}
+library(boot)
+library(kableExtra)
+library(dplyr)
+dat = boot::melanoma
+kable(dat) %>%
+  kable_paper() %>%
+  scroll_box(width = "100%", height = "400px")
+
+
 ```
 
-Recall from the first section of the chapter that one case of censoring involves an event that completely blocks the possibility for the relevant outcome to occurs. This is essentially the main idea of competing risks models.
+You may notice that the status variable has 3 levels. This is different from the usual 2 level status variable in the other survival analysis methods. In this data set, a 1 indicates death from melanoma, 2 indicates they were still alive, and 3 indicates death from causes unrelated to melanoma. Since death from a cause unrelated to melanoma precludes a death directly caused by melanoma, these unrelated deaths are competing with melanoma related deaths.  
 
-Competing risks analysis is a special extension of survival analysis that allows for multiple competing outcomes. Outcomes are said to be competing when the presence of one completely blocks the chance of any other event occurring. Competing risks analyses can provide a more realistic view of the world as there can be many reasons as to why a patient did not experience the outcome. For example, mortality in elderly patients may be the outcome of interest, but patients can die from illness, heart attack, or even unforeseen accidents. Once one type of death event occurs, it is impossible for any other type to arise. In this sense, these death events are said to be competing. 
+Before we start the analysis, let's make sense of the data. To start, we will look at an overall summary of all the variables. The following table shows characteristics stratified by event type.     
 
-Some key assumptions of standard survival analysis are violated with competing risk models. First, the assumption that relevant outcomes can occur after censoring is violated since only one competing outcome can occur. Second, we assume that for each time point, the instantaneous probability of an event occurring among those who survived up to that time point is independent of being censored. In other words, the probability of dying at a given time is not dependent on censoring. This assumption is violated since
+```{r table1, echo=FALSE, message=FALSE}
+library(table1)
+
+# make categorical variables factors
+dat$status = factor(dat$status,
+                         levels=c(2,1,3),
+                         labels=c("Alive", # Reference
+                                  "Melanoma",
+                                  "Non-melanoma"))
+dat$sex = factor(dat$sex,
+                         levels=c(1,0),
+                         labels=c("Male", # Reference
+                                  "Female"))
+
+dat$ulcer = factor(dat$ulcer,
+                         levels=c(0,1),
+                         labels=c("Absent", # Reference
+                                  "Present"))
+
+# label variables
+label(dat$sex) = "Sex"
+label(dat$age) = "Age"
+label(dat$ulcer) = "Ulceration"
+label(dat$thickness) = "Thickness"
+
+units(dat$age) = "years"
+units(dat$thickness) = "mm"
 
 
-You can embed an R code chunk like this:
 
-```{r cars}
-summary(cars)
-fit <- lm(dist ~ speed, data = cars)
-fit
+# label and stratify
+labels <- list(
+    variables=list(sex="Sex",
+                   age="Age (years)",
+                   ulcer="Ulceration",
+                   thickness="Thickness (mm)"),
+    groups=list("", "", "Death"))
+
+strata <- c(list(Total=dat), split(dat, dat$status))
+my.render.cont <- function(x) {
+    with(stats.apply.rounding(stats.default(x), digits=2), c("",
+        "Mean (SD)"=sprintf("%s (&plusmn; %s)", MEAN, SD)))
+}
+my.render.cat <- function(x) {
+    c("", sapply(stats.default(x), function(y) with(y,
+        sprintf("%d (%0.0f %%)", FREQ, PCT))))
+}
+
+# make table one
+table1(strata,
+       labels,
+       groupspan=c(1, 1, 2),
+       render.continuous=my.render.cont,
+       render.categorical=my.render.cat)
 ```
 
-# Including Plots
+Now that we have a good look at our covariates, we can start looking at our outcomes. We can plot the first 10 follow-up times to outcomes for each patient like before, but this time we will include the competing risk.  
 
-You can also embed plots. See Figure \@ref(fig:pie) for example:
+```{r timeline, echo=FALSE}
+library(ggplot2)
+dat$id = ordered(c(1:nrow(dat)))
+ggplot(dat[c(1:10),], aes(x = id)) + 
+    # Plot solid line representing non-interval censored time from 0 to t1
+    geom_linerange(aes(ymin = 0, ymax = time), show.legend = FALSE) +  
+    # Plot points representing event
+    # The ifelse() function moves censored marker to middle of interval
+    geom_point(aes(y = time, shape = status), 
+        size = 4,
+        show.legend = TRUE) +
+    # Flip coordinates
+    coord_flip() + 
+    # Add custom name to linetype scale, 
+    # otherwise it will default to "as.factor(censored))"
+    scale_linetype_manual(name = "Status", values = c(1,2,3)) +
+    # Add custom shape scale.  Change the values to get different shapes.
+    scale_shape_manual(name = "", values = c(19, 15, 17),
+                       labels = c("Alive", 
+                                  "Melanoma",
+                                  "Non-melanoma")) +
+    # Add main title and axis labels
+    ggtitle("") + 
+    xlab("Patient ID") +  
+    ylab("Time (In Days)") + 
+    # I think the bw theme looks better for this graph, 
+    # but leave it out if you prefer the default theme
+    theme_bw() 
 
-```{r pie, fig.cap='A fancy pie chart.', tidy=FALSE}
-par(mar = c(0, 1, 0, 1))
-pie(
-  c(280, 60, 20),
-  c('Sky', 'Sunny side of pyramid', 'Shady side of pyramid'),
-  col = c('#0292D8', '#F7EA39', '#C4B632'),
-  init.angle = -50, border = NA
+```
+
+Instead of a Kaplan-Meier plot, we will use a Cumulative Incidence Function Why we use the CIF instead will be explained later, but essentially a CIF can estimate the event occurrences even in the presence of competing risks while a KM will be upwardly biased. We will plot the crude incidences of each event, melanoma vs. non-melanoma related deaths.    
+
+
+
+```{r CIF, tidy=FALSE, echo=FALSE, message=FALSE}
+library(cmprsk)
+library(survminer)
+
+# make plot object
+ci_fit =
+  cuminc(
+    ftime = dat$time,
+    fstatus = dat$status,
+    cencode = "Alive"
+    )
+
+# plot cumulative incidence function
+ggcompetingrisks(ci_fit)
+
+```
+
+We can also look at bivariable associations with death and covariates by using Gray's test, which is like a modified Chi-Square to test differences in cumulative incidences between groups. The p-values in each plot represent the Gray's test results.  
+
+```{r CIFgridData, echo=FALSE, message=FALSE}
+library(cowplot)
+library(purrr)
+library(tidyr)
+
+# recode continuous
+dat$ageCat = cut(sort(dat$age),
+                             breaks = c(0,40,65,Inf),
+                             labels = c("<=40","41-65","65+"))
+dat$thicknessCat = cut(sort(dat$thickness),
+                             breaks = c(0,1,2,4,Inf),
+                             labels = c("<=1.00mm",
+                                        "1.01-2.00mm",
+                                        "2.01-4.00mm",
+                                        ">4mm"))
+
+# get multiple cuminc objects
+
+sex_fit = list(cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$sex,
+                 cencode = "Alive"),  
+               cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$sex,
+                 cencode = "Alive") %>%
+                 list_modify("Tests" = NULL) %>%
+                 map_df(`[`, c("time", "est"), .id = "id") %>%
+                 mutate(id = recode(
+                   id,
+                   "Female Melanoma" = "Female:Death melanoma",
+                   "Female Non-melanoma" = "Female:Death other causes",
+                   "Male Melanoma" = "Male:Death melanoma",
+                   "Male Non-melanoma" = "Male:Death other causes")) %>%
+                 separate(id, c("sex", "Event"), ":") )
+
+age_fit = list(cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$ageCat,
+                 cencode = "Alive"),  
+               cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$ageCat,
+                 cencode = "Alive") %>%
+                 list_modify("Tests" = NULL) %>%
+                 map_df(`[`, c("time", "est"), .id = "id") %>%
+                 mutate(id = recode(
+                   id,
+                   "<=40 Melanoma" = "<=40:Death melanoma",
+                   "<=40 Non-melanoma" = "<=40:Death other causes",
+                   "41-65 Melanoma" = "41-65:Death melanoma",
+                   "41-65 Non-melanoma" = "41-65:Death other causes",
+                   "65+ Melanoma" = "65+:Death melanoma",
+                   "65+ Non-melanoma" = "65+:Death other causes")) %>%
+                 separate(id, c("age", "Event"), ":") )
+
+thick_fit = list(cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$thicknessCat,
+                 cencode = "Alive"),
+                 cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$thicknessCat,
+                 cencode = "Alive") %>%
+                   list_modify("Tests" = NULL) %>%
+                   map_df(`[`, c("time", "est"), .id = "id") %>%
+                   mutate(id = recode(id,
+                  "<=1.00mm Melanoma" = "<=1.00mm:Death melanoma",
+                  "<=1.00mm Non-melanoma" = "<=1.00mm:Death other causes",
+                  "1.01-2.00mm Melanoma" = "1.01-2.00mm:Death melanoma",
+                  "1.01-2.00mm Non-melanoma" = "1.01-2.00mm:Death other causes",
+                  "2.01-4.00mm Melanoma" = "2.01-4.00mm:Death melanoma",
+                  "2.01-4.00mm Non-melanoma" = "2.01-4.00mm:Death other causes",
+                  ">4mm Melanoma" = ">4mm:Death melanoma",
+                  ">4mm Non-melanoma" = ">4mm:Death other causes")) %>%
+                   separate(id, c("thickness", "Event"), ":") )
+
+ulcer_fit = list(cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$ulcer,
+                 cencode = "Alive"),
+                 cuminc(ftime = dat$time,
+                 fstatus = dat$status,
+                 group = dat$ulcer,
+                 cencode = "Alive") %>%
+                   list_modify("Tests" = NULL) %>%
+                   map_df(`[`, c("time", "est"), .id = "id") %>%
+                   mutate(id = recode(id,
+                    "Absent Melanoma" = "Absent:Death melanoma",
+                    "Absent Non-melanoma" = "Absent:Death other causes",
+                    "Present Melanoma" = "Present:Death melanoma",
+                    "Present Non-melanoma" = "Present:Death other causes")) %>%
+                   separate(id, c("ulcer", "Event"), ":") )
+```
+
+```{r CIFgrid, echo=FALSE, message=FALSE}
+
+# function for plots
+cumincPlots = function(data, var, test, title){
+  fitDat = data
+  labels = vector(length = length(fitDat))
+  labels[grep("other", fitDat$Event)] = paste0(
+             "Death other causes p = ",
+             ifelse(test$Tests[2, 2] < .001,
+                    "<.001",
+                    round(test$Tests[2, 2], 3)))
+ 
+  labels[grep("melanoma", fitDat$Event)] = paste0("Death melanoma p = ",
+             ifelse(test$Tests[1, 2] < .001,
+                    "<.001",
+                    round(test$Tests[1, 2], 3)))
+  fitDat$labels = labels
+ # print(fitDat)
+ 
+  ggplot(fitDat, aes(x = time, y = est, color = var)) +
+  geom_step(lwd = 1.2, aes(linetype = Event))  +
+    facet_wrap(~Event) +
+  ylim(c(0, 1)) +
+  theme_classic() +
+  theme(plot.title = element_text(size = 14),
+        legend.title = element_blank(),
+        legend.position = "bottom") +
+  labs(x = "Days",
+       y = "Cumulative incidence",
+       title = title) +
+    geom_text(data = fitDat,
+              mapping = aes(x = 0, y = 1, label = labels),
+              hjust   = 0,
+              color='black',
+              size = 2.8)
+ # annotate("text", x = 0, y = 1, hjust = 0,
+#           label = labels) #+
+  #annotate("text", x = 0, y = 0.92, hjust = 0,
+   #        label = test2)
+}
+
+# plot grid
+plot_grid(
+cumincPlots(sex_fit[[2]], sex_fit[[2]]$sex, sex_fit[[1]], "Gender"),
+#cumincPlots(age_fit[[2]], age_fit[[2]]$age, age_fit[[1]], "age"),
+#cumincPlots(thick_fit[[2]], thick_fit[[2]]$thickness, thick_fit[[1]], "tumor thickness"),
+cumincPlots(ulcer_fit[[2]], ulcer_fit[[2]]$ulcer, ulcer_fit[[1]], "Ulcer status"),
+ncol = 1
 )
 ```
 
+We could look at the continuous variables by categorizing them. Here's an example:  
+
+```{r CIFgridContinuous, echo=FALSE}
+
+# plot
+plot_grid(
+#cumincPlots(sex_fit[[2]], sex_fit[[2]]$sex, sex_fit[[1]], "Gender"),
+cumincPlots(age_fit[[2]], age_fit[[2]]$age, age_fit[[1]], "Age"),
+cumincPlots(thick_fit[[2]], thick_fit[[2]]$thickness, thick_fit[[1]], "Tumor thickness"),
+#cumincPlots(ulcer_fit[[2]], ulcer_fit[[2]]$ulcer, ulcer_fit[[1]], "Ulcer status"),
+ncol = 1
+)
+```
+
+Now we can estimate hazard ratios. With a competing risks model, we can estimate the instantaneous rate of occcurrence of a given event type for subjects who have not yet experienced it. ratios of the cause specific mortality while accounting for the non-melanoma related deaths. The Fine and Gray method for calculating competing risks will work nicely for this. We're going to put all four covariates in a multivariable model for this example.  
+
+```{r model, echo=FALSE}
+modelMat <- model.matrix(object = ~ age + sex + thickness + ulcer, data = dat)
+modelMat <- modelMat[,-1]
+
+# build model
+model_fit = summary(crr(ftime = dat$time,
+                        fstatus = dat$status,
+                        cov1 = modelMat,
+                        cencode = "Alive",
+                        failcode = "Melanoma"))
+model_table = round(model_fit$coef[,c(2,3,5)], 3)
+`HR (95% CI)` = paste0(model_table[,1], " (", model_table[,1] - model_table[,2], "-", model_table[,1] + model_table[,2], ")")
+model_table = as.data.frame(cbind(`HR (95% CI)`, model_table[,3]))
+names(model_table)[2] = 'p-value'
+model_table[4,2] = "<0.001"
+kable(model_table)
+
+
+```
+
+Interpreting the results can be a little tricky since it's easy to think of hazard ratios like odd's ratios in logistic regression. For a given time (day 1, day 50, day 250, etc.), we can expect that a 1 mm increase in tumor thickness will increase the probability of a melanoma related death by 9.4%, controlling for other variables. Categorical variables can be interpreted against their reference group. Controlling for other covariates, at any given time point, we would expect 3x the probability of a melanoma related death for patients with an ulcerated tumor, as opposed to those without an ulcer.  
+
+Earlier, I mentioned that a normal cox regression will bias the estimates. If this data were to code all non-melanoma related deaths as censored cases, the estimates would be over inflated. This is because blah blah blah... add this in. Let's compare the results of the competing risks and cox regression models.  
+
+```{r cox, echo=FALSE}
+# survival object
+coxData = dat
+coxData[coxData$status == "Non-melanoma",2] = "Alive"
+coxData$status = droplevels(coxData$status)
+
+cox_model = summary(coxph(Surv(coxData$time, coxData$status) ~ age + sex + thickness + ulcer, coxData, id = id))
+
+cox_table = round(cox_model$coef[,c(2,3,6)], 3)
+`HR (95% CI)` = paste0(cox_table[,1], " (", cox_table[,1] - cox_table[,2], "-", cox_table[,1] + cox_table[,2], ")")
+cox_table = as.data.frame(cbind(`HR (95% CI)`, cox_table[,3]))
+names(cox_table)[2] = 'p-value'
+cox_table[4,2] = "<0.001"
+combinedTable = cbind(model_table[1], cox_table[1])
+names(combinedTable) = c("Competing Risks \nHR (95% CI)", "Cox Model \nHR (95% CI)")
+kable(combinedTable)
+
+
+```
